@@ -22,6 +22,33 @@ jobs:
       - name: Generate Android project
         run: flutter create . --platforms=android --org=com.schoolmanagement
 
+      - name: Fix Flutter dot-shorthands
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("lib/main.dart")
+
+          if not path.exists():
+              raise SystemExit("ERROR: lib/main.dart was not found.")
+
+          text = path.read_text()
+
+          text = text.replace(
+              "colorScheme: .fromSeed(",
+              "colorScheme: ColorScheme.fromSeed("
+          )
+
+          text = text.replace(
+              "mainAxisAlignment: .center",
+              "mainAxisAlignment: MainAxisAlignment.center"
+          )
+
+          path.write_text(text)
+
+          print("Dot-shorthand fixes applied successfully.")
+          PY
+
       - name: Install dependencies
         run: flutter pub get
 

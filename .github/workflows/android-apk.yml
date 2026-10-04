@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Setup Flutter
@@ -19,47 +19,97 @@ jobs:
         with:
           channel: stable
 
-      - name: Generate Android project
-        run: flutter create . --platforms=android --org=com.schoolmanagement
-
-      - name: Fix Flutter dot-shorthands
+      - name: Find and extract Flutter ZIP
+        shell: bash
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
+          set -e
 
-          path = Path("lib/main.dart")
+          ZIP_FILE=$(find . -maxdepth 2 -type f -name "*.zip" | head -n 1)
 
-          if not path.exists():
-              raise SystemExit("ERROR: lib/main.dart was not found.")
+          if [ -z "$ZIP_FILE" ]; then
+            echo "ERROR: No Flutter ZIP file found."
+            exit 1
+          fi
 
-          text = path.read_text()
+          echo "Using ZIP: $ZIP_FILE"
 
-          text = text.replace(
-              "colorScheme: .fromSeed(",
-              "colorScheme: ColorScheme.fromSeed("
-          )
+          mkdir -p extracted
+          unzip -q "$ZIP_FILE" -d extracted
 
-          text = text.replace(
-              "mainAxisAlignment: .center",
-              "mainAxisAlignment: MainAxisAlignment.center"
-          )
+          PUBSPEC=$(find extracted -type f -name "pubspec.yaml" -print -quit)
 
-          path.write_text(text)
+          if [ -z "$PUBSPEC" ]; then
+            echo "ERROR: pubspec.yaml was not found inside ZIP."
+            exit 1
+          fi
 
-          print("Dot-shorthand fixes applied successfully.")
-          PY
+          APP_DIR=$(dirname "$PUBSPEC")
+
+          echo "Flutter project found at: $APP_DIR"
+          echo "APP_DIR=$APP_DIR" >> "$GITHUB_ENV"
+
+      - name: Fix Dart dot-shorthand errors
+        shell: bash
+        run: |
+          set -e
+
+          if [ -f "$APP_DIR/lib/main.dart" ]; then
+            sed -i \
+              's/colorScheme: \.fromSeed(/colorScheme: ColorScheme.fromSeed(/g' \
+              "$APP_DIR/lib/main.dart"
+
+            sed -i \
+              's/mainAxisAlignment: \.center/mainAxisAlignment: MainAxisAlignment.center/g' \
+              "$APP_DIR/lib/main.dart"
+
+            echo "Dot-shorthand fixes applied."
+          else
+            echo "ERROR: lib/main.dart not found."
+            exit 1
+          fi
+
+      - name: Generate Android project
+        shell: bash
+        run: |
+          set -e
+          cd "$APP_DIR"
+
+          flutter create . \
+            --platforms=android \
+            --org=com.schoolmanagement
 
       - name: Install dependencies
-        run: flutter pub get
-
-      - name: Build APK
+        shell: bash
         run: |
+          set -e
+          cd "$APP_DIR"
+          flutter pub get
+
+      - name: Build Release APK
+        shell: bash
+        env:
+          SUPABASE_URL: https://yeqpkotyeqvajxanlzpj.supabase.co
+          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+        run: |
+          set -e
+          cd "$APP_DIR"
+
           flutter build apk --release \
-            --dart-define=SUPABASE_URL=https://yeqpkotyeqvajxanlzpj.supabase.co \
-            --dart-define=SUPABASE_PUBLISHABLE_KEY=${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+            --dart-define=SUPABASE_URL="$SUPABASE_URL" \
+            --dart-define=SUPABASE_PUBLISHABLE_KEY="$SUPABASE_PUBLISHABLE_KEY"
+
+      - name: Copy APK
+        shell: bash
+        run: |
+          set -e
+
+          cp "$APP_DIR/build/app/outputs/flutter-apk/app-release.apk" \
+             "$GITHUB_WORKSPACE/school-management.apk"
+
+          echo "APK created successfully."
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: school-management-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          path: school-management.apk

@@ -1,0 +1,12 @@
+# Phase 17 Supabase configuration
+# Public onboarding functions intentionally accept the publishable key.
+# Keep privileged keys only inside Supabase-managed Edge Function secrets.
+
+[functions.resolve-account]
+verify_jwt = false
+
+[functions.setup-account]
+verify_jwt = false
+
+[functions.verify-school-account]
+verify_jwt = false
